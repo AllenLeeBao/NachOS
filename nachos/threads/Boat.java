@@ -27,6 +27,8 @@ public class Boat
     {
         BoatGrader b = new BoatGrader();
 
+		//Cancel the following codes to test
+		
         //System.out.println("\n ***Testing Boats with only 2 children***");
         //begin(0, 2, b);
 
