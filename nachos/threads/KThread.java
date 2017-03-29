@@ -415,7 +415,7 @@ public class KThread {
         }
         
         public void run() {
-            for (int i=0; i<1000; i++) {
+            for (int i=0; i<5; i++) {
                 System.out.println("*** thread " + which + " looped "
                        + i + " times");
                 currentThread.yield();
@@ -426,6 +426,7 @@ public class KThread {
         private int which;
     }
 
+	// Beginning of testing code
 	public static void test_join() {
 		Lib.debug(dbgThread, "Enter KThread.selfTest");
 		boolean ints = Machine.interrupt().disable();
@@ -699,23 +700,24 @@ public class KThread {
 		}).fork();
 	}
 	
+	// End of testing code
     /**
      * Tests whether this module is working.
      */
     public static void selfTest() {
         Lib.debug(dbgThread, "Enter KThread.selfTest");
         
-        //new KThread(new PingTest(1)).setName("forked thread").fork();
-        //new KThread(new PingTest(2)).setName("forked thread").fork();
-        //new PingTest(0).run();
-        //new PingTest(1).run();
-        //new PingTest(3).run();
+        new KThread(new PingTest(1)).setName("forked thread").fork();
+        new PingTest(0).run();
+		
+        //Cancel the following code to test
+		
         //test_join();
         //test_condition2();
         //test_Alarm();
         //test_communicator();
         //test_Priority();
-        test_Boat();
+        //test_Boat();
     }
 
     private static final char dbgThread = 't';
