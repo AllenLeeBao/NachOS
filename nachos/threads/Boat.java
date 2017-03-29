@@ -7,30 +7,40 @@ public class Boat
     static final int origin = 0;
     static final int destination = 1;
 
-    static int childAtOrigin = 0;
-    static int childAtDestination = 0;
-    static int adultAtOrigin = 0;
-    static int adultAtDestination = 0;
-    static int boatLocation = origin;
-    static int passengerCount = 0;
+    static int childAtOrigin;
+    static int childAtDestination;
+    static int adultAtOrigin;
+    static int adultAtDestination;
+    static int boatLocation;
+    
+    static int childCount;
+    
+    static boolean needPilot;
+    static boolean firstChild;
 
     static Lock boatLock = new Lock();
-    static Condition2 waitingAtOrigin = new Condition2(boatLock);
-    static Condition2 waitingAtDestination = new Condition2(boatLock);
-    static Condition2 waitingForBoatFull = new Condition2(boatLock);
+    static Condition2 childsWaitingAtOrigin = new Condition2(boatLock);
+    static Condition2 adultsWaitingAtOrigin = new Condition2(boatLock);
+    static Condition2 childsWaitingAtDestination = new Condition2(boatLock);
     
     public static void selfTest()
     {
         BoatGrader b = new BoatGrader();
 
-        System.out.println("\n ***Testing Boats with only 2 children***");
-        begin(0, 2, b);
-/*
-        System.out.println("\n ***Testing Boats with 2 children, 1 adult***");
-        begin(1, 2, b);
+        //System.out.println("\n ***Testing Boats with only 2 children***");
+        //begin(0, 2, b);
 
-        System.out.println("\n ***Testing Boats with 3 children, 3 adults***");
-        begin(3, 3, b);*/
+        //System.out.println("\n ***Testing Boats with only 2 children***");
+        //begin(0, 1, b);
+        
+        //System.out.println("\n ***Testing Boats with only 2 children***");
+        //begin(1, 0, b);
+        
+        //System.out.println("\n ***Testing Boats with 2 children, 1 adult***");
+        //begin(1, 2, b);
+
+        //System.out.println("\n ***Testing Boats with 3 children, 3 adults***");
+        //begin(3, 3, b);
     }
 
     public static void begin( int adults, int children, BoatGrader b )
@@ -58,14 +68,11 @@ public class Boat
 	    adultAtDestination = 0;
 	    adultAtOrigin = adults;
 	    boatLocation = origin;
-	    passengerCount = 0;
+        childCount = children;
 
-        Runnable adultRunnable = new Runnable() {
-            public void run() {
-                AdultItinerary();
-            }
-        };
-
+        needPilot = true;
+        firstChild = false;
+        
         Runnable childRunnable= new Runnable() {
             public void run() {
                 ChildItinerary();
@@ -73,15 +80,26 @@ public class Boat
         };
 
         for (int i = 0; i < adults; ++i) {
-            KThread adult = new KThread(adultRunnable);
-            adult.setName("Adult #" + i);
-            adult.fork();
+            KThread adult = new KThread(new Runnable() {
+                public void run() {
+                    AdultItinerary();
+                }
+            });
+            adult.setName("Adult #" + i).fork();
         }
 
         for (int i = 0; i < children; ++i) {
-            KThread child = new KThread(childRunnable);
-            child.setName("Child #" + i);
-            child.fork();
+            KThread child = new KThread(new Runnable() {
+                public void run() {
+                    if (childCount > 1) {
+                        firstChild = false;
+                        childCount--;
+                    } else
+                        firstChild = true;
+                    ChildItinerary();
+                }
+            });
+            child.setName("Child #" + i).fork();
         }
 
     }
@@ -98,31 +116,17 @@ public class Boat
            indicates that an adult has rowed the boat across to Molokai
         */
 
-        int thisLocation = origin; //start at origin;
         boatLock.acquire();
 
-        while (true) {
-            if (thisLocation == origin) {
-                while (boatLocation != origin || childAtOrigin > 1 || passengerCount > 0) {
-                    waitingAtOrigin.sleep();
-                }
-                bg.AdultRowToMolokai();
-                adultAtOrigin --;
-                adultAtDestination++;
-                boatLocation = destination;
-                thisLocation = destination;
+        while (boatLocation != origin || (childAtDestination == 0 && childAtOrigin > 0))
+            adultsWaitingAtOrigin.sleep();
+        
+        bg.AdultRowToMolokai();
+        adultAtOrigin --;
+        adultAtDestination++;
+        boatLocation = destination;
 
-                waitingAtDestination.wakeAll();
-                waitingAtDestination.sleep();
-            }// end if (start at origin)
-
-            else if (thisLocation == destination) {
-                waitingAtDestination.sleep();
-            }
-            else {
-                break;
-            }
-        }
+        childsWaitingAtDestination.wake();
 
         boatLock.release();
     }
@@ -136,84 +140,59 @@ public class Boat
         int thisLocation = origin;
         boatLock.acquire();
 
-        while (true) {
+        while (adultAtOrigin + childAtOrigin > 0) {
+            //System.out.println("child go " + adultAtOrigin + " " + childAtDestination);
             if (thisLocation == origin) {
-                while (boatLocation != origin || passengerCount >= 2 ||
-                        (adultAtOrigin >= 1 && childAtOrigin == 1)) {
-                    waitingAtDestination.sleep();
-                }
-                //ready to go: the boat is at origin, the boat isn't full yet,
-                // (there can't be exactly 1 adult and 1 child at origin)
-                waitingAtOrigin.wakeAll();
-                //If at least two child at origin, they go
-                //If exactly one child and no adult at origin, child go
+                // if boat is not at origin or an adult can go, let this child sleep
+                if (boatLocation != origin || (adultAtOrigin > 0 && childAtDestination > 0) || !firstChild)
+                    childsWaitingAtOrigin.sleep();
+                firstChild = true;
+                //System.out.println("not sleep");
 
-                if (childAtOrigin == 1 && adultAtOrigin == 0) {
-                    ++passengerCount;
-                    childAtOrigin--;
-                    childAtDestination++;
-                    boatLocation = destination;
+                if (needPilot) {
+                    bg.ChildRowToMolokai();
                     thisLocation = destination;
-
-                    if (passengerCount == 1)
-                        bg.ChildRowToMolokai();
-                    else
-                        bg.ChildRideToMolokai();
-                    passengerCount = 0;
-
-                    waitingAtDestination.sleep();
-                }
-
-                else if (childAtOrigin >= 2) {
-                    ++passengerCount;
-
-                    if (passengerCount == 1) {
-                        waitingForBoatFull.sleep();
-
-                        //when woke by the second child
-                        bg.ChildRowToMolokai();
-                        childAtOrigin --;
-                        childAtDestination ++;
-                        thisLocation = destination;
-
-                        waitingForBoatFull.wake();
-                        waitingAtDestination.sleep();
-                    }
-
-                    else if (passengerCount == 2) {
-                        waitingForBoatFull.wake();
-                        waitingForBoatFull.sleep();
-
-                        bg.ChildRideToMolokai();
+                    if (childAtOrigin > 1) {
+                        //System.out.println("take a passenger");
+                        //System.out.println(adultAtOrigin + " " + childAtDestination);
+                        needPilot = false;
+                        childsWaitingAtOrigin.wake();
+                    } else {
                         boatLocation = destination;
-                        thisLocation = destination;
+                        childAtDestination++;
                         childAtOrigin--;
-                        childAtDestination ++;
-
-                        passengerCount = 0;
-
-                        waitingAtDestination.wakeAll();
-                        waitingAtDestination.sleep();
                     }
-                } // if childAtOrigin >= 2
-            }// if thisLocation == origin
-
-            else if (thisLocation == destination) {
-                while (boatLocation != destination && (childAtOrigin + adultAtOrigin == 0)) {
-                    waitingAtDestination.sleep();
+                    childsWaitingAtDestination.sleep();
                 }
-                childAtDestination--;
-                childAtOrigin++;
-                bg.ChildRowToOahu();
-                boatLocation = origin;
-                thisLocation = origin;
-
-                waitingAtOrigin.wakeAll();
-                waitingAtOrigin.sleep();
+                else {
+                    bg.ChildRideToMolokai();
+                    thisLocation = destination;
+                    boatLocation = destination;
+                    childAtDestination += 2;
+                    childAtOrigin -= 2;
+                    needPilot = true;
+                    if (childAtOrigin + adultAtOrigin > 0)
+                        childsWaitingAtDestination.wake();
+                    childsWaitingAtDestination.sleep();
+                }
             }
 
             else {
-                break;
+                //System.out.println("child at destination: "+childAtDestination);
+                bg.ChildRowToOahu();
+                childAtDestination--;
+                //System.out.println("child at destination: "+childAtDestination);
+                childAtOrigin++;
+                boatLocation = origin;
+                thisLocation = origin;
+
+                if (adultAtOrigin == 0)
+                    childsWaitingAtOrigin.wake();
+                else if (childAtDestination > 0)
+                    adultsWaitingAtOrigin.wake();
+                else
+                    childsWaitingAtOrigin.wake();
+                childsWaitingAtOrigin.sleep();
             }
         }
         boatLock.release();
